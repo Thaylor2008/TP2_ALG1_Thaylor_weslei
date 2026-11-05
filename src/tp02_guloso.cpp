@@ -1,101 +1,120 @@
-#include <cstdint>
 #include <iostream>
 #include <vector>
 #include <queue>
-#include <tuple>
+#include <utility>
 
 using namespace std;
 
-// Valor de infinito para inicialização de distâncias de 64 bits
 const long long INF = 1e18;
 
-// Deslocamentos para células vizinhas (Cima, Baixo, Esquerda, Direita)
-const int dr[] = {-1, 1, 0, 0};
-const int dc[] = {0, 0, -1, 1};
+// Movimentos possiveis: cima, baixo, esquerda e direita
+int dr[] = {-1, 1, 0, 0};
+int dc[] = {0, 0, -1, 1};
 
 int H, W;
 
-// Mapeia coordenada 2D (linha r, coluna c) para um índice 1D
-inline int to_id(int r, int c) {
+// Transforma coordenadas da matriz em um indice linear do vetor
+inline int get_id(int r, int c) {
     return r * W + c;
 }
 
-// Algoritmo Guloso (Dijkstra) para responder a uma consulta
-long long dijkstra_guloso(int r1, int c1, int r2, int c2, const vector<long long>& grid_cost) {
-    // Caso de origem e destino iguais: o custo é o custo da própria célula
+// Algoritmo de Dijkstra direto na grade para calcular o menor caminho entre duas celulas
+long long dijkstra(int r1, int c1, int r2, int c2, const vector<long long>& mapa) {
+
+    // Caso de origem e destino na mesma celula
     if (r1 == r2 && c1 == c2) {
-        return grid_cost[to_id(r1, c1)];
+        return mapa[get_id(r1, c1)];
     }
 
-    int start_id = to_id(r1, c1);
-    int target_id = to_id(r2, c2);
-    int total_nodes = H * W;
+    int inicio = get_id(r1, c1);
+    int destino = get_id(r2, c2);
+    int total_celulas = H * W;
 
-    vector<long long> dist(total_nodes, INF);
+    vector<long long> dist(total_celulas, INF);
 
-    // Fila de prioridades mínima (Min-Heap): armazena pares <distancia_acumulada, id_no>
-    priority_queue<pair<long long, int>, 
-                   vector<pair<long long, int>>, 
-                   greater<pair<long long, int>>> pq;
+    // Fila de prioridade: menor distancia acumulada primeiro
+    priority_queue<
+        pair<long long, int>,
+        vector<pair<long long, int>>,
+        greater<pair<long long, int>>
+    > fila;
 
-    dist[start_id] = grid_cost[start_id];
-    pq.push({dist[start_id], start_id});
+    // O custo inicial inclui o peso da celula de origem
+    dist[inicio] = mapa[inicio];
+    fila.push({dist[inicio], inicio});
 
-    while (!pq.empty()) {
-        auto [d, u] = pq.top();
-        pq.pop();
+    while (!fila.empty()) {
 
+        auto top = fila.top();
+        fila.pop();
+
+        long long d = top.first;
+        int u = top.second;
+
+        // Ignora caminhos ja atualizados
         if (d > dist[u]) continue;
-        if (u == target_id) return d; // Parada precoce ao atingir o destino
+
+        // Parada antecipada ao atingir o objetivo
+        if (u == destino) return d;
 
         int r = u / W;
         int c = u % W;
 
-        for (int i = 0; i < 4; ++i) {
+        // Explora os quatro vizinhos
+        for (int i = 0; i < 4; i++) {
+
             int nr = r + dr[i];
             int nc = c + dc[i];
 
-            // Verifica os limites da grade (0 <= nr < H e 0 <= nc < W)
+            // Garante que o vizinho esta dentro dos limites do mapa
             if (nr >= 0 && nr < H && nc >= 0 && nc < W) {
-                int v = to_id(nr, nc);
-                long long weight = grid_cost[v];
 
-                if (dist[u] + weight < dist[v]) {
-                    dist[v] = dist[u] + weight;
-                    pq.push({dist[v], v});
+                int v = get_id(nr, nc);
+                long long w = mapa[v];
+
+                // Atualiza o caminho mais curto
+                if (dist[u] + w < dist[v]) {
+                    dist[v] = dist[u] + w;
+                    fila.push({dist[v], v});
                 }
             }
         }
     }
 
-    return dist[target_id];
+    return dist[destino];
 }
 
 int main() {
-    // Otimização de E/S em C++ para suportar até 50.000 consultas rapidamente
+
     ios::sync_with_stdio(false);
-    cin.tie(NULL);
+    cin.tie(nullptr);
 
     if (!(cin >> H >> W)) return 0;
 
-    vector<long long> grid_cost(H * W);
-    for (int i = 0; i < H; ++i) {
-        for (int j = 0; j < W; ++j) {
-            cin >> grid_cost[to_id(i, j)];
+    // Leitura dos custos da grade em vetor 1D
+    vector<long long> mapa(H * W);
+
+    for (int i = 0; i < H; i++) {
+        for (int j = 0; j < W; j++) {
+            cin >> mapa[get_id(i, j)];
         }
     }
 
     int Q;
-    if (!(cin >> Q)) return 0;
+    cin >> Q;
 
+    // Leitura e processamento de cada consulta
     while (Q--) {
         int r1, c1, r2, c2;
         cin >> r1 >> c1 >> r2 >> c2;
-        
-        // Converte coordenadas 1-indexadas da entrada para 0-indexadas
-        r1--; c1--; r2--; c2--;
 
-        cout << dijkstra_guloso(r1, c1, r2, c2, grid_cost) << "\n";
+        // Converte coordenadas 1-indexadas da entrada para 0-indexadas
+        r1--;
+        c1--;
+        r2--;
+        c2--;
+
+        cout << dijkstra(r1, c1, r2, c2, mapa) << "\n";
     }
 
     return 0;

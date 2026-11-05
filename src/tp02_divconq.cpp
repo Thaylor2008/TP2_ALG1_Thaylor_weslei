@@ -1,71 +1,82 @@
-#include <cstdint>
 #include <iostream>
 #include <vector>
 #include <queue>
-#include <tuple>
 #include <algorithm>
-
+#include <utility>
 using namespace std;
 
-// Valor de infinito para inicialização de custos (64 bits)
 const long long INF = 1e18;
 
-// Deslocamentos para células vizinhas (Cima, Baixo, Esquerda, Direita)
-const int dr[] = {-1, 1, 0, 0};
-const int dc[] = {0, 0, -1, 1};
+// Movimentos possiveis: cima, baixo, esquerda e direita
+int dr[] = {-1, 1, 0, 0};
+int dc[] = {0, 0, -1, 1};
 
 int H, W;
-vector<vector<long long>> grid_cost;
+vector<vector<long long>> mapa;
 
-// Estrutura para armazenar uma consulta
+// Guarda os pontos de origem e destino de cada consulta
 struct Query {
-    int r1, c1, r2, c2;
-    int id;
+    int r1, c1, r2, c2, id;
 };
 
-// Mapeamento 2D para índice 1D no subgrafo das colunas [L, R]
-inline int get_sub_id(int r, int c, int L, int width) {
+// Transforma uma posicao da matriz em um indice de vetor
+int get_id(int r, int c, int L, int width) {
     return r * width + (c - L);
 }
 
-// Respostas finais para as Q consultas
 vector<long long> ans;
 
-// Executa o Dijkstra no subgrafo restrito às colunas [L, R] a partir de (src_r, src_c)
-vector<long long> dijkstra_subgrid(int L, int R, int src_r, int src_c) {
+// Algoritmo de Dijkstra para calcular as menores distancias a partir de uma celula
+// considerando somente as colunas entre L e R
+vector<long long> dijkstra(int L, int R, int sr, int sc) {
+
     int width = R - L + 1;
-    int total_nodes = H * width;
-    vector<long long> dist(total_nodes, INF);
+    vector<long long> dist(H * width, INF);
 
-    int start_id = get_sub_id(src_r, src_c, L, width);
-    dist[start_id] = grid_cost[src_r][src_c];
+    int start = get_id(sr, sc, L, width);
 
-    // Priority queue minima: <distancia_acumulada, r, c>
-    priority_queue<tuple<long long, int, int>,
-                   vector<tuple<long long, int, int>>,
-                   greater<tuple<long long, int, int>>> pq;
+    // O custo inicial inclui a celula de origem
+    dist[start] = mapa[sr][sc];
 
-    pq.push({dist[start_id], src_r, src_c});
+    // Fila de prioridade: menor distancia primeiro
+    priority_queue<
+        pair<long long, pair<int, int>>,
+        vector<pair<long long, pair<int, int>>>,
+        greater<pair<long long, pair<int, int>>>
+    > fila;
 
-    while (!pq.empty()) {
-        auto [d, r, c] = pq.top();
-        pq.pop();
+    fila.push({dist[start], {sr, sc}});
 
-        int u_id = get_sub_id(r, c, L, width);
-        if (d > dist[u_id]) continue;
+    while (!fila.empty()) {
 
-        for (int i = 0; i < 4; ++i) {
+        auto top = fila.top();
+        fila.pop();
+
+        long long d = top.first;
+        int r = top.second.first;
+        int c = top.second.second;
+
+        int u = get_id(r, c, L, width);
+
+        // Ignora distancias que ja foram atualizadas
+        if (d > dist[u]) continue;
+
+        // Verifica os quatro vizinhos
+        for (int i = 0; i < 4; i++) {
+
             int nr = r + dr[i];
             int nc = c + dc[i];
 
-            // Restrição: a busca não pode sair do intervalo de colunas [L, R]
+            // Verifica se a posicao esta dentro da regiao
             if (nr >= 0 && nr < H && nc >= L && nc <= R) {
-                int v_id = get_sub_id(nr, nc, L, width);
-                long long weight = grid_cost[nr][nc];
 
-                if (d + weight < dist[v_id]) {
-                    dist[v_id] = d + weight;
-                    pq.push({dist[v_id], nr, nc});
+                int v = get_id(nr, nc, L, width);
+                long long w = mapa[nr][nc];
+
+                // Atualiza caso encontre um caminho menor
+                if (d + w < dist[v]) {
+                    dist[v] = d + w;
+                    fila.push({dist[v], {nr, nc}});
                 }
             }
         }
@@ -74,87 +85,112 @@ vector<long long> dijkstra_subgrid(int L, int R, int src_r, int src_c) {
     return dist;
 }
 
-// Procedimento de Divisão e Conquista
-void divide_and_conquer(int L, int R, const vector<Query>& active_queries) {
-    if (active_queries.empty()) return;
+// Divide as consultas utilizando a coluna do meio
+void solve(int L, int R, const vector<Query>& q_list) {
 
-    int mid = (L + R) / 2;
+    if (q_list.empty()) return;
+
+    int meio = (L + R) / 2;
     int width = R - L + 1;
 
-    // Executa H Dijkstras a partir de cada célula da coluna mid
-    vector<vector<long long>> dist_from_mid(H);
-    for (int k = 0; k < H; ++k) {
-        dist_from_mid[k] = dijkstra_subgrid(L, R, k, mid);
+    // Calcula Dijkstra a partir de cada linha da coluna central
+    vector<vector<long long>> d_mid(H);
+
+    for (int i = 0; i < H; i++) {
+        d_mid[i] = dijkstra(L, R, i, meio);
     }
 
-    vector<Query> left_queries, right_queries;
+    vector<Query> consultasEsquerda;
+    vector<Query> consultasDireita;
 
-    for (const auto& q : active_queries) {
-        int min_c = min(q.c1, q.c2);
-        int max_c = max(q.c1, q.c2);
+    for (const auto& q : q_list) {
 
-        // Se o caminho entre c1 e c2 atravessa a coluna mid
-        if (min_c <= mid && mid <= max_c) {
-            int u1 = get_sub_id(q.r1, q.c1, L, width);
-            int u2 = get_sub_id(q.r2, q.c2, L, width);
+        int u1 = get_id(q.r1, q.c1, L, width);
+        int u2 = get_id(q.r2, q.c2, L, width);
 
-            long long best = INF;
-            for (int k = 0; k < H; ++k) {
-                long long d1 = dist_from_mid[k][u1];
-                long long d2 = dist_from_mid[k][u2];
-                long long total_cost = d1 + d2 - grid_cost[k][mid];
-                if (total_cost < best) {
-                    best = total_cost;
-                }
+        long long melhor = INF;
+
+        // Testa qual celula da coluna central serve de melhor ponte na faixa [L, R]
+        for (int k = 0; k < H; k++) {
+            long long d1 = d_mid[k][u1];
+            long long d2 = d_mid[k][u2];
+
+            if (d1 != INF && d2 != INF) {
+                long long custo = d1 + d2 - mapa[k][meio];
+                melhor = min(melhor, custo);
             }
-            ans[q.id] = best;
-        } else if (max_c < mid) {
-            left_queries.push_back(q);
-        } else { // min_c > mid
-            right_queries.push_back(q);
+        }
+
+        // Atualiza a resposta global da consulta com o menor caminho que cruza a coluna meio
+        ans[q.id] = min(ans[q.id], melhor);
+
+        // Se a consulta esta inteiramente à esquerda do meio, passa para o subproblema esquerdo
+        if (q.c1 < meio && q.c2 < meio) {
+            consultasEsquerda.push_back(q);
+        } 
+        // Se a consulta esta inteiramente à direita do meio, passa para o subproblema direito
+        else if (q.c1 > meio && q.c2 > meio) {
+            consultasDireita.push_back(q);
         }
     }
 
+    // Caso-base: resta apenas uma coluna
     if (L == R) return;
 
-    // Chamadas recursivas para as metades esquerda e direita
-    if (mid - 1 >= L) divide_and_conquer(L, mid - 1, left_queries);
-    if (mid + 1 <= R) divide_and_conquer(mid + 1, R, right_queries);
+    // Resolve os dois subproblemas recursivamente
+    if (meio - 1 >= L) {
+        solve(L, meio - 1, consultasEsquerda);
+    }
+
+    if (meio + 1 <= R) {
+        solve(meio + 1, R, consultasDireita);
+    }
 }
 
 int main() {
-    // Otimização de Entrada e Saída
+
     ios::sync_with_stdio(false);
-    cin.tie(NULL);
+    cin.tie(nullptr);
 
     if (!(cin >> H >> W)) return 0;
 
-    grid_cost.assign(H, vector<long long>(W));
-    for (int i = 0; i < H; ++i) {
-        for (int j = 0; j < W; ++j) {
-            cin >> grid_cost[i][j];
+    // Leitura dos custos da grade
+    mapa.assign(H, vector<long long>(W));
+
+    for (int i = 0; i < H; i++) {
+        for (int j = 0; j < W; j++) {
+            cin >> mapa[i][j];
         }
     }
 
     int Q;
-    if (!(cin >> Q)) return 0;
+    cin >> Q;
 
-    ans.resize(Q);
+    // Inicializa as respostas com INF
+    ans.assign(Q, INF);
+
     vector<Query> queries(Q);
 
-    for (int i = 0; i < Q; ++i) {
-        cin >> queries[i].r1 >> queries[i].c1 >> queries[i].r2 >> queries[i].c2;
-        // Converte coordenadas 1-indexadas para 0-indexadas
-        queries[i].r1--; queries[i].c1--;
-        queries[i].r2--; queries[i].c2--;
+    // Leitura das consultas
+    for (int i = 0; i < Q; i++) {
+
+        cin >> queries[i].r1 >> queries[i].c1
+            >> queries[i].r2 >> queries[i].c2;
+
+        // Converte as coordenadas para indices iniciados em zero
+        queries[i].r1--;
+        queries[i].c1--;
+        queries[i].r2--;
+        queries[i].c2--;
+
         queries[i].id = i;
     }
 
-    // Inicia Divisão e Conquista no intervalo completo de colunas [0, W - 1]
-    divide_and_conquer(0, W - 1, queries);
+    // Inicia a divisao e conquista
+    solve(0, W - 1, queries);
 
-    // Imprime as respostas na ordem original das consultas
-    for (int i = 0; i < Q; ++i) {
+    // Imprime as respostas na ordem original
+    for (int i = 0; i < Q; i++) {
         cout << ans[i] << "\n";
     }
 
